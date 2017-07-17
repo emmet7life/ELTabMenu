@@ -4,7 +4,7 @@ An iOS tab menu that can customize with various options.(iOS平台下多种化�
 <p>
 <img src="https://github.com/emmet7life/ELTabMenu/blob/master/screenshot/demo1.png" />
 </p>
-```
+```swift
         tabMenu.options.padding = 0.0
         tabMenu.options.itemLayoutMode = .free
         tabMenu.options.scrollBarWidthPercent = 0.7
