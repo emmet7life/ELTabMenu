@@ -1,9 +1,6 @@
 # ELTabMenu
 An iOS tab menu that can customize with various options.(iOS平台下多种化可定制的菜单组件)
 
-<p>
-<img src="https://github.com/emmet7life/ELTabMenu/blob/master/screenshot/demo1.png" />
-</p>
 ``
 tabMenu.options.padding = 0.0
 tabMenu.options.itemLayoutMode = .free
@@ -17,6 +14,11 @@ tabMenu.options.scrollBarAlignPosition = .alignText
 tabMenu.options.scrollBarPositionOffset = -0.5
 tabMenu.options.scrollBarLeadingPosition = .left
 ``
+
+<p>
+<img src="https://github.com/emmet7life/ELTabMenu/blob/master/screenshot/demo1.png" />
+</p>
+
 <p>
 <img src="https://github.com/emmet7life/ELTabMenu/blob/master/screenshot/demo2.png" />
 </p>
