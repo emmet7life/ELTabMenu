@@ -29,7 +29,7 @@ public class ELTabMenuUtils {
         return t * toFloat + f * fromFloat
     }
 
-    func transition(_ fromFloat: CGFloat, toFloat: CGFloat, duration: CFTimeInterval = 0.25, callback: @escaping ELTabMenuTransitionCallback) {
+    func transition(_ fromFloat: CGFloat, toFloat: CGFloat, duration: CFTimeInterval = 0.1, callback: @escaping ELTabMenuTransitionCallback) {
         _fromFloat = fromFloat
         _toFloat = toFloat
         _transitionDuration = duration
@@ -81,7 +81,7 @@ public enum ELTabMenuScrollBarAlignPosition {
 // top:     顶部
 // center: 中间
 // bottom: 底部
-public enum ELTabMenuScrollBarPosition {
+public enum ELTabMenuVerticalPosition {
     case top
     case center
     case bottom
@@ -99,7 +99,7 @@ public enum ELTabMenuScrollBarZAnchorPosition {
     case behind
 }
 
-public func == (lhs: ELTabMenuScrollBarPosition, rhs: ELTabMenuScrollBarPosition) -> Bool {
+public func == (lhs: ELTabMenuVerticalPosition, rhs: ELTabMenuVerticalPosition) -> Bool {
     switch (lhs, rhs) {
     case (.top, .top): return true
     case (.center, .center): return true
@@ -108,18 +108,23 @@ public func == (lhs: ELTabMenuScrollBarPosition, rhs: ELTabMenuScrollBarPosition
     }
 }
 
+fileprivate class ELTabMenuPointShapeLayer: CAShapeLayer {
+    
+}
+
 public struct ELTabMenuOptions {
     // common style
     var padding: CGFloat = 8.0
     var margin: CGFloat = 20.0
     var textFontSize: CGFloat = 16.0
+    var textFont: UIFont?
     var bold = false
 
     // 布局时头尾Item是否也加上margin
     var edgeNeedMargin: Bool = true
 
-    var normalColor = ELTabMenu.ELTabMenuConstant.kDefaultNormalColor
-    var selectedColor = ELTabMenu.ELTabMenuConstant.kDefaultFocusColor
+    var normalColor: UIColor? = ELTabMenu.ELTabMenuConstant.kDefaultNormalColor
+    var selectedColor: UIColor? = ELTabMenu.ELTabMenuConstant.kDefaultFocusColor
 
     var maxItemWidth: CGFloat = 0.0// 最大宽度限制
     var defaultItemIndex: Int = 0// 默认选中项索引
@@ -129,13 +134,19 @@ public struct ELTabMenuOptions {
 
     // scroll bar style
     var scrollBarAlpha: CGFloat = 1.0
-    var scrollBarColor = ELTabMenu.ELTabMenuConstant.kDefaultFocusColor
-    var scrollBarHeight = ELTabMenu.ELTabMenuConstant.kDefaultScrollBarHeight
-    var scrollBarPosition: ELTabMenuScrollBarPosition = .bottom
+    var scrollBarColor: UIColor? = ELTabMenu.ELTabMenuConstant.kDefaultFocusColor
+    var scrollBarHeight = ELTabMenu.ELTabMenuConstant.kDefaultScrollBarHeight {
+        didSet {
+            scrollBarLayerCornerRadius = scrollBarHeight * 0.5
+        }
+    }
+    var scrollBarPosition: ELTabMenuVerticalPosition = .bottom
     var scrollBarAlignPosition: ELTabMenuScrollBarAlignPosition = .alignView
     var scrollBarPositionOffset: CGFloat = 0.0// 偏移量
     var scrollBarLeadingPosition: ELTabMenuScrollBarLeadingPosition = .center
     var scrollBarZPosition: ELTabMenuScrollBarZAnchorPosition = .behind
+    var isUseScrollBarCornerRadiusStyle = false
+    var scrollBarLayerCornerRadius: CGFloat = ELTabMenu.ELTabMenuConstant.kDefaultScrollBarHeight * 0.5
     var scrollBarWidthPercent: CGFloat = 1.0 { // 滚动条占据整个Item宽度的百分比，默认与Item等宽
         didSet {
             autoAdjustScrollBarWidthPercent = false
@@ -143,8 +154,60 @@ public struct ELTabMenuOptions {
     }
     var autoAdjustScrollBarWidthPercent = true// 是否自动调整scrollBarWidthPercent，默认true
 
+    // 2017/08/01
+    // 可配置Tab之间的分隔视图
+    var isShowSeperatorView = false
+    var seperatorViewSize = CGSize(width: 1, height: 10) {
+        didSet {
+            isShowSeperatorView = true
+        }
+    }
+
+    var seperatorViewImage: UIImage? {
+        didSet {
+            isShowSeperatorView = true
+        }
+    }
+
+    var seperatorViewBackgroundImage: UIImage? {
+        didSet {
+            isShowSeperatorView = true
+        }
+    }
+
+    var seperatorViewBackgroundColor = UIColor.colorWithHexRGBA(0xD8D8D8) {
+        didSet {
+            isShowSeperatorView = true
+        }
+    }
+
+    var sepetatorViewPosition: ELTabMenuVerticalPosition = .center {
+        didSet {
+            isShowSeperatorView = true
+        }
+    }
+
     // debug mode
     var debug = false
+    
+    // 2018.04.14
+    var normalTextFont: UIFont?
+    var selectedTextFont: UIFont?
+    
+    var normalTextFontSize: CGFloat?
+    var selectedTextFontSize: CGFloat?
+    
+    // 支持背景和自定义Scroll视图组件
+    var backgroundView: UIView?
+    var scrollIndicatorView: UIView?
+    
+    // 2018.04.18 支持打点
+    var pointOffset: CGPoint = .zero          // 默认在文本组件的右上方，可设置该偏移量做调整
+    var pointRadius: CGFloat = 4.0            // 小圆点半径
+    var pointColor: UIColor = .red            // 打点的颜色
+    
+    // 2018.04.23
+    var isScrollBarAutoScrollWithOffsetChanged = true  // 外部offset变化时，scrollBar要不要实时跟着变化(如果不实时跟着变化，那么外部变化结束时要手动调用scrollTo)
 }
 
 public protocol ELTabMenuDelegate: class {
@@ -156,8 +219,8 @@ public protocol ELTabMenuDelegate: class {
 open class ELTabMenu: UIView {
 
     struct ELTabMenuConstant {
-        static let kDefaultNormalColor = UIColor.colorWithHexRGBA(hexValue: 0x646464)
-        static let kDefaultFocusColor = UIColor.colorWithHexRGBA(hexValue: 0x0091A4)
+        static let kDefaultNormalColor = UIColor.mainColor
+        static let kDefaultFocusColor = UIColor.colorWithHexRGBA(0xFF4C6A)
         static let kDefaultScrollBarHeight: CGFloat = 2.0
         static let kDefaultItemWidth: CGFloat = 100.0
 
@@ -177,13 +240,21 @@ open class ELTabMenu: UIView {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.backgroundColor = UIColor.clear
+   
         return scrollView
     }()
 
     // 滚动条指示器视图
     fileprivate lazy var _scrollBar: UIView = {
         let scrollBar = UIView()
-        scrollBar.backgroundColor = self.options.scrollBarColor
+        if let scrollBarColor = self.options.scrollBarColor {
+            scrollBar.backgroundColor = scrollBarColor
+        } else {
+            scrollBar.theme_backgroundColor = VCThemeMacro.mainColor
+        }
+        if self.options.isUseScrollBarCornerRadiusStyle {
+            scrollBar.layer.cornerRadius = self.options.scrollBarLayerCornerRadius
+        }
         return scrollBar
     }()
 
@@ -193,19 +264,33 @@ open class ELTabMenu: UIView {
     }
 
     public var scrollBar: UIView {
-        return _scrollBar
+        return options.scrollIndicatorView ?? _scrollBar
+    }
+    
+    public var backgroundView: UIView? {
+        return options.backgroundView
     }
 
+    // 控制是否可以切换
+    fileprivate var _switchControl: Bool = true
+    
     fileprivate var _tabItemViewArr = [UIView]()
 
     // Data
     fileprivate var _cacheItemWidths = [CGFloat]()
     fileprivate var _currentTabIndex: Int = 0
     fileprivate var _currentOffset = CGPoint.zero
+    
+    var currentIndex: Int {
+        return _currentTabIndex
+    }
 
     weak var delegate: ELTabMenuDelegate?
 
     var options: ELTabMenuOptions = ELTabMenuOptions()
+    
+    // 2018.04.18 - 支持打点
+    fileprivate var _pointMarkTabIndexes: Set = Set<Int>()
 
     fileprivate var _titles = [String]()
 
@@ -297,9 +382,18 @@ open class ELTabMenu: UIView {
             _tabItemViewArr.removeAll()
 
             // 7. 开始布局
+            
             // add scroll bar
-            _scrollBar.alpha = options.scrollBarAlpha
-            _contentView.addSubview(_scrollBar)
+            if let scrollIndicatorView = options.scrollIndicatorView {
+                // custom scrollbar view
+                _contentView.addSubview(scrollIndicatorView)
+            } else {
+                // default scrollbar view
+                _scrollBar.alpha = options.scrollBarAlpha
+                _scrollBar.layer.masksToBounds = true
+                _scrollBar.layer.cornerRadius = _scrollBar.height * 0.5
+                _contentView.addSubview(_scrollBar)
+            }
 
             var scrollBarY: CGFloat = 0
             switch options.scrollBarPosition {
@@ -320,8 +414,18 @@ open class ELTabMenu: UIView {
                     scrollBarY = (_height + textHeight) * 0.5 - options.scrollBarHeight
                 }
             }
-            scrollBarY += options.scrollBarPositionOffset * UIScreen.main.scale
-            _scrollBar.frame = CGRect(x: scrollBar_x(_currentTabIndex), y: scrollBarY, width: scrollBar_width(_currentTabIndex), height: options.scrollBarHeight)
+            scrollBarY += options.scrollBarPositionOffset
+            scrollBar.frame = CGRect(x: scrollBar_x(_currentTabIndex), y: scrollBarY, width: scrollBar_width(_currentTabIndex), height: options.scrollBarHeight)
+
+            // line view
+            let createSeperatorView = { () -> UIButton in
+                let view = UIButton(type: .custom)
+                view.frame.size = self.options.seperatorViewSize
+                view.setImage(self.options.seperatorViewImage, for: UIControlState())
+                view.setBackgroundImage(self.options.seperatorViewBackgroundImage, for: UIControlState())
+                view.backgroundColor = self.options.seperatorViewBackgroundColor
+                return view
+            }
 
             // add tab item
             let lastIndex = _titles.count - 1
@@ -336,22 +440,40 @@ open class ELTabMenu: UIView {
 
                 let button = UIButton(type: .custom)
                 button.tag = index
+                button.backgroundColor = .clear
                 button.addTarget(self, action: #selector(onItemTapped(_:)), for: .touchUpInside)
-                button.titleLabel?.font = options.bold ? UIFont.boldSystemFont(ofSize: options.textFontSize) : UIFont.systemFont(ofSize: options.textFontSize)
-                button.setTitle(title, for: UIControlState())
-                button.setTitleColor(options.normalColor, for: UIControlState())
-                button.setTitleColor(options.selectedColor, for: .selected)
-                button.setTitleColor(options.selectedColor, for: .highlighted)
+                button.setTitle(title, for: .normal)
                 button.frame = CGRect(x: x, y: 0, width: width, height: _height)
                 _contentView.addSubview(button)
                 _tabItemViewArr.append(button)
 
-                button.isSelected = index == _currentTabIndex
+                let isCurrentTabIndex = index == _currentTabIndex
+                if isCurrentTabIndex {
+                    button.setTitleColor(options.selectedColor ?? .black, for: .normal)
+                } else {
+                    button.setTitleColor(options.normalColor ?? .black, for: .normal)
+                }
+                button.titleLabel?.font = isCurrentTabIndex ? selectedTextFont : normalTextFont
 
                 x += width
                 contentSize.width = x
                 if options.edgeNeedMargin && index == lastIndex {
                     contentSize.width += options.margin
+                }
+
+                if options.isShowSeperatorView && index != lastIndex{
+                    let seperatorView = createSeperatorView()
+                    let seperatorCenterX = x + options.margin * 0.5
+                    seperatorView.centerX = seperatorCenterX
+                    switch options.sepetatorViewPosition {
+                    case .top:
+                        seperatorView.top = 0.0
+                    case .center:
+                        seperatorView.centerY = _contentView.centerY
+                    case .bottom:
+                        seperatorView.bottom = _contentView.bottom
+                    }
+                    _contentView.addSubview(seperatorView)
                 }
                 x += options.margin
 
@@ -362,39 +484,112 @@ open class ELTabMenu: UIView {
             }
 
             _contentView.contentSize = contentSize
+            
+            // add background view
+            if let _backgroundView = backgroundView {
+                _backgroundView.origin = .zero
+                _backgroundView.size = intrinsicContentSize
+                addSubview(_backgroundView)
+                sendSubview(toBack: _backgroundView)
+            }
 
             if options.scrollBarZPosition == .front {
-                _contentView.bringSubview(toFront: _scrollBar)
+                _contentView.bringSubview(toFront: scrollBar)
             }
 
             layoutIfNeeded()
         }
     }
 
+    open override var intrinsicContentSize: CGSize {
+        return bounds.size
+    }
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         didInitialize()
     }
-
+    
     required public init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
         didInitialize()
     }
 
     fileprivate func didInitialize() {
-        translatesAutoresizingMaskIntoConstraints = false
         addSubview(_contentView)
-    }
-
-    override open func didMoveToSuperview() {
-        super.didMoveToSuperview()
     }
 
     override open func layoutSubviews() {
         super.layoutSubviews()
-        _contentView.frame = bounds
         // 横竖屏切换时，需要重新布局
-        tabTitles = _titles
+        if bounds != _contentView.frame {
+            _contentView.frame = bounds
+            tabTitles = _titles
+        }
+    }
+    
+    /// 添加打点
+    ///
+    /// - Parameter tabIndex: Tab索引
+    func addPoint(to tabIndex: Int) {
+        _pointMarkTabIndexes.insert(tabIndex)
+        updatePointIfNeeded()
+    }
+    
+    /// 移除打点
+    ///
+    /// - Parameter tabIndex: Tab索引
+    func removePoint(with tabIndex: Int) {
+        _pointMarkTabIndexes.remove(tabIndex)
+        updatePointIfNeeded()
+    }
+    
+    /// 移除所有打点
+    func removeAllPoint() {
+        _pointMarkTabIndexes.removeAll()
+        updatePointIfNeeded()
+    }
+    
+    /// 内部方法，用来打点和移除打点
+    fileprivate func updatePointIfNeeded() {
+        for tabIndex in 0 ..< _tabItemViewArr.count {
+            if let tabItemButton = validTabItemButton(tabIndex),
+                let sublayers = tabItemButton.layer.sublayers,
+                let titleLabel = tabItemButton.titleLabel {
+                
+                let pointShaperLayers = sublayers.filter { $0.classForCoder == ELTabMenuPointShapeLayer.self }
+                
+                if _pointMarkTabIndexes.contains(tabIndex) {
+                    if pointShaperLayers.isEmpty {
+                        // add layer
+                        let layer = createPointShapeLayer(with: tabIndex, titleLabel)
+                        tabItemButton.layer.addSublayer(layer)
+                    }
+                } else {
+                    // remove layer
+                    pointShaperLayers.forEach { $0.removeFromSuperlayer() }
+                }
+                
+            }
+        }
+    }
+    
+    fileprivate func createPointShapeLayer(with tabIndex: Int, _ titleLabel: UILabel) -> CALayer {
+        let center = titleLabel.center
+        let arcCenter = CGPoint(x: options.pointRadius, y: options.pointRadius)
+        let bezier = UIBezierPath(arcCenter: arcCenter, radius: options.pointRadius, startAngle: 0, endAngle: CGFloat.pi * 2, clockwise: true)
+        let shapeLayer = ELTabMenuPointShapeLayer()
+        shapeLayer.fillColor = options.pointColor.cgColor
+        shapeLayer.path = bezier.cgPath
+        
+        let x = center.x + titleLabel.width * 0.5 + options.pointOffset.x
+        let y = center.y - titleLabel.height * 0.5 + options.pointOffset.y
+        let width = options.pointRadius * 2
+        let height = width
+        let frame = CGRect(x: x, y: y, width: width, height: height)
+        
+        shapeLayer.frame = frame
+        return shapeLayer
     }
 
     fileprivate var _width: CGFloat {
@@ -405,11 +600,11 @@ open class ELTabMenu: UIView {
         return bounds.size.height
     }
 
-    fileprivate var measureLabel: UILabel {
+    fileprivate lazy var measureLabel: UILabel = {
         let label = UILabel()
-        label.font = options.bold ? UIFont.boldSystemFont(ofSize: options.textFontSize) : UIFont.systemFont(ofSize: options.textFontSize)
+        label.font = self.normalTextFont
         return label
-    }
+    }()
 
     fileprivate func measureSize(_ text: String) -> CGSize {
         let label = measureLabel
@@ -418,8 +613,35 @@ open class ELTabMenu: UIView {
         return label.sizeThatFits(size)
     }
 
+    fileprivate var font: UIFont {
+        if let textFont = options.textFont {
+            return textFont
+        }
+        return options.bold ? UIFont.boldSystemFont(ofSize: options.textFontSize) : UIFont.systemFont(ofSize: options.textFontSize)
+    }
+    
+    fileprivate lazy var normalTextFont: UIFont = {
+        if let font = self.options.normalTextFont {
+            return font
+        }
+        if let fontSize = self.options.normalTextFontSize {
+            return self.options.bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
+        }
+        return self.font
+    }()
+    
+    fileprivate lazy var selectedTextFont: UIFont = {
+        if let font = self.options.selectedTextFont {
+            return font
+        }
+        if let fontSize = self.options.selectedTextFontSize {
+            return self.options.bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
+        }
+        return self.font
+    }()
+
     fileprivate func firstTabItemCharacterMeasureSize() -> CGSize {
-        return measureSize("\(_titles.first?.characters.first ?? "国")")
+        return measureSize("国")// "\(_titles.first?.characters.first)"
     }
 
     // Item的x坐标值
@@ -453,27 +675,30 @@ open class ELTabMenu: UIView {
         guard let button = any as? UIButton else {
             return
         }
+        guard _switchControl else {
+            return
+        }
         let tabIndex = button.tag
-        scrollToTab(tabIndex)
+        if _currentTabIndex != tabIndex {
+            delegate?.switchToTab(tabIndex, disable: abs(_currentTabIndex - tabIndex) > 1)
+        }
     }
 
     func scrollToTab(_ tabIndex: Int, animted: Bool = true) {
-        //        guard _currentTabIndex != tabIndex else {
-        //            return
-        //        }
-
         if _currentTabIndex != tabIndex {
             delegate?.switchToTab(tabIndex, disable: abs(_currentTabIndex - tabIndex) > 1)
         }
 
         let toFloat = CGFloat(tabIndex) * ELTabMenuConstant.kScreenWidth
         if animted {
+            _switchControl = false
             // 利用CADisplayLink来模拟PageController的contentOffset的变化
             ELTabMenuUtils.share.transition(_currentOffset.x, toFloat: toFloat) {[weak self] (finished, offsetX) in
                 self?.contentOffset = CGPoint(x: offsetX, y: 0)
                 if finished {
                     // 结束啦！
                     self?.scrollTabToCenter(tabIndex)
+                    self?._switchControl = true
                 }
             }
         } else {
@@ -483,12 +708,18 @@ open class ELTabMenu: UIView {
     }
 
     func scrollTabToCenter(_ tabIndex: Int, animted: Bool = true) {
+        guard let tabItemView = validTabItemButton(tabIndex) else { return }
         // 1.该目标Tab的坐标
-        let tabFrame = _tabItemViewArr[tabIndex].frame
+        let tabFrame = tabItemView.frame
         let centerX = tabFrame.origin.x + tabFrame.width * 0.5
         var offsetX = centerX - _width * 0.5
         offsetX = min(max(0, _contentView.contentSize.width - _width), max(0, offsetX))
         _contentView.setContentOffset(CGPoint(x: offsetX, y: 0), animated: animted)
+    }
+    
+    fileprivate func validTabItemButton(_ tabIndex: Int) -> UIButton? {
+        guard tabIndex >= 0 && tabIndex < _tabItemViewArr.count else { return nil }
+        return _tabItemViewArr[tabIndex] as? UIButton
     }
 
     fileprivate func validIndex(_ index: Int) -> Int {
@@ -503,6 +734,10 @@ open class ELTabMenu: UIView {
             guard _titles.count >= 2 else {
                 return
             }
+            
+            guard options.isScrollBarAutoScrollWithOffsetChanged || !_switchControl else {
+                return
+            }
 
             _currentOffset = contentOffset
 
@@ -514,40 +749,42 @@ open class ELTabMenu: UIView {
             // 根据offset计算当前在哪个Page上
             let currentTabIndex = Int(diffPercent / multiplied)
             _currentTabIndex = currentTabIndex
-            //            __devlog("diffPercent \(diffPercent), multiplied \(multiplied), currentTabIndex \(currentTabIndex)")
+//            __devlog("diffPercent \(diffPercent), multiplied \(multiplied), currentTabIndex \(currentTabIndex)")
 
             let multipiedOffset = multiplied * CGFloat(currentTabIndex)
 
             let diffMultipied = diffPercent - multipiedOffset
             let _percent = diffMultipied / multiplied
-            //            __devlog("diffMultipied \(diffMultipied), _percent \(_percent)")
+//            __devlog("diffMultipied \(diffMultipied), _percent \(_percent)")
 
             let _diffXOffset = scrollBar_x(currentTabIndex + 1) - scrollBar_x(validIndex(currentTabIndex))
             let _diffWidthOffset = scrollBar_width(currentTabIndex + 1) - scrollBar_width(currentTabIndex)
-            //            __devlog("_diffXOffset \(_diffXOffset), _diffWidthOffset \(_diffWidthOffset)")
+//            __devlog("_diffXOffset \(_diffXOffset), _diffWidthOffset \(_diffWidthOffset)")
 
             let scrollBarX = scrollBar_x(currentTabIndex)
             let scrollBarWidth = scrollBar_width(currentTabIndex)
             let targetX = scrollBarX + _diffXOffset * _percent
             let targetWidth = scrollBarWidth + _diffWidthOffset * _percent
 
-            var frame = _scrollBar.frame
+            var frame = scrollBar.frame
             frame.origin.x = targetX
             frame.size.width = targetWidth
-            _scrollBar.frame = frame
-
-            //            print("//////////////////////////////////////////////////////////////////////////")
-            //            print("//////////////////////////////////////////////////////////////////////////")
+            scrollBar.frame = frame
 
             for element in _tabItemViewArr.enumerated() {
                 let itemView = element.element
                 let offset = element.offset
                 
                 if diffPercent >= multiplied * (CGFloat(offset - 1) + 0.5) && diffPercent <= multiplied * (CGFloat(offset) + 0.5) {
-                    //                    print("offset is \(offset)")
-                    (itemView as? UIButton)?.isSelected = true
+                    if let button = itemView as? UIButton {
+                        button.setTitleColor(options.selectedColor ?? .black, for: .normal)
+                        button.titleLabel?.font = selectedTextFont
+                    }
                 } else {
-                    (itemView as? UIButton)?.isSelected = false
+                    if let button = itemView as? UIButton {
+                        button.setTitleColor(options.normalColor ?? .black, for: .normal)
+                        button.titleLabel?.font = normalTextFont
+                    }
                 }
                 
             }
